@@ -25,11 +25,11 @@ const ModuleSchema = new Schema<IModuleDocument, IModuleModel>(
     },
     description: {
       type: String,
-      required: [true, "Description is required"],
+      required: [false, "Description is required"],
     },
     image: {
       type: String,
-      required: [true, "Image is required"],
+      required: [false, "Image is required"],
     },
     content_type: {
       type: String,
@@ -42,7 +42,7 @@ const ModuleSchema = new Schema<IModuleDocument, IModuleModel>(
   },
   {
     timestamps: true,
-  }
+  },
 );
 
 const Module: IModuleModel =
