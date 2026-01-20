@@ -7,7 +7,6 @@ import {
   Path,
   PathModule,
   UserPathAssignment,
-  UserModuleCompletion,
 } from "@/lib/models";
 import { createLogger } from "@/lib/logger";
 
@@ -40,11 +39,61 @@ export async function GET(
     const userId = new mongoose.Types.ObjectId(session.user.id);
     const pathId = new mongoose.Types.ObjectId(id);
 
-    const assignment = await UserPathAssignment.findOne({
-      user_id: userId,
-      path_id: pathId,
-    });
-    log.time("findAssignment");
+    // Run independent queries in parallel
+    const [assignment, path, modules] = await Promise.all([
+      UserPathAssignment.findOne({
+        user_id: userId,
+        path_id: pathId,
+      }),
+      Path.findById(pathId),
+      PathModule.aggregate([
+        { $match: { path_id: pathId } },
+        { $sort: { order: 1 } },
+        {
+          $lookup: {
+            from: "modules",
+            localField: "module_id",
+            foreignField: "_id",
+            as: "module",
+          },
+        },
+        { $unwind: "$module" },
+        {
+          $lookup: {
+            from: "usermodulecompletions",
+            let: { moduleId: "$module_id" },
+            pipeline: [
+              {
+                $match: {
+                  $expr: {
+                    $and: [
+                      { $eq: ["$module_id", "$$moduleId"] },
+                      { $eq: ["$user_id", userId] },
+                      { $eq: ["$path_id", pathId] },
+                    ],
+                  },
+                },
+              },
+            ],
+            as: "completion",
+          },
+        },
+        {
+          $project: {
+            _id: "$module._id",
+            title: "$module.title",
+            description: "$module.description",
+            image: "$module.image",
+            content_type: "$module.content_type",
+            content: "$module.content",
+            order: 1,
+            is_completed: { $gt: [{ $size: "$completion" }, 0] },
+            completed_at: { $arrayElemAt: ["$completion.completed_at", 0] },
+          },
+        },
+      ]),
+    ]);
+    log.time("parallelQueries");
 
     if (!assignment) {
       log.end(404);
@@ -54,69 +103,14 @@ export async function GET(
       );
     }
 
-    const path = await Path.findById(pathId);
-    log.time("findPath");
-
     if (!path) {
       log.end(404);
       return NextResponse.json({ error: "Path not found" }, { status: 404 });
     }
 
-    const modules = await PathModule.aggregate([
-      { $match: { path_id: pathId } },
-      { $sort: { order: 1 } },
-      {
-        $lookup: {
-          from: "modules",
-          localField: "module_id",
-          foreignField: "_id",
-          as: "module",
-        },
-      },
-      { $unwind: "$module" },
-      {
-        $lookup: {
-          from: "usermodulecompletions",
-          let: { moduleId: "$module_id" },
-          pipeline: [
-            {
-              $match: {
-                $expr: {
-                  $and: [
-                    { $eq: ["$module_id", "$$moduleId"] },
-                    { $eq: ["$user_id", userId] },
-                    { $eq: ["$path_id", pathId] },
-                  ],
-                },
-              },
-            },
-          ],
-          as: "completion",
-        },
-      },
-      {
-        $project: {
-          _id: "$module._id",
-          title: "$module.title",
-          description: "$module.description",
-          image: "$module.image",
-          content_type: "$module.content_type",
-          content: "$module.content",
-          order: 1,
-          is_completed: { $gt: [{ $size: "$completion" }, 0] },
-          completed_at: { $arrayElemAt: ["$completion.completed_at", 0] },
-        },
-      },
-    ]);
-    log.time("aggregateModules");
-
-    const completedCount = await UserModuleCompletion.countDocuments({
-      user_id: userId,
-      path_id: pathId,
-    });
-    log.time("countCompleted");
-
+    // Calculate completed count from aggregation result (no extra query needed)
     const totalModules = modules.length;
+    const completedCount = modules.filter((m) => m.is_completed).length;
     const progress =
       totalModules > 0 ? (completedCount / totalModules) * 100 : 0;
 
