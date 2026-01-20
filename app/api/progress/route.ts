@@ -8,19 +8,28 @@ import {
   UserPathAssignment,
   UserModuleCompletion,
 } from "@/lib/models";
+import { createLogger } from "@/lib/logger";
 
 export async function POST(request: NextRequest) {
+  const log = createLogger("POST /api/progress");
+
   try {
     const session = await auth.api.getSession({
       headers: await headers(),
     });
+    log.time("auth");
+
     if (!session?.user) {
+      log.end(401);
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
     const body = await request.json();
     const { path_id, module_id } = body;
+    log.time("parseBody");
+
     if (!path_id || !module_id) {
+      log.end(400);
       return NextResponse.json(
         { error: "path_id and module_id are required" },
         { status: 400 },
@@ -31,6 +40,7 @@ export async function POST(request: NextRequest) {
       !mongoose.Types.ObjectId.isValid(path_id) ||
       !mongoose.Types.ObjectId.isValid(module_id)
     ) {
+      log.end(400);
       return NextResponse.json(
         { error: "Invalid path_id or module_id" },
         { status: 400 },
@@ -38,6 +48,7 @@ export async function POST(request: NextRequest) {
     }
 
     await dbConnect();
+    log.time("dbConnect");
 
     const userId = new mongoose.Types.ObjectId(session.user.id);
     const pathId = new mongoose.Types.ObjectId(path_id);
@@ -47,7 +58,10 @@ export async function POST(request: NextRequest) {
       user_id: userId,
       path_id: pathId,
     });
+    log.time("findAssignment");
+
     if (!assignment) {
+      log.end(404);
       return NextResponse.json(
         { error: "Path not assigned to user" },
         { status: 404 },
@@ -58,7 +72,10 @@ export async function POST(request: NextRequest) {
       path_id: pathId,
       module_id: moduleId,
     });
+    log.time("findPathModule");
+
     if (!pathModule) {
+      log.end(404);
       return NextResponse.json(
         { error: "Module not found in this path" },
         { status: 404 },
@@ -70,7 +87,10 @@ export async function POST(request: NextRequest) {
       path_id: pathId,
       module_id: moduleId,
     });
+    log.time("checkExisting");
+
     if (existingCompletion) {
+      log.end(200, { alreadyCompleted: true });
       return NextResponse.json(
         { message: "Module already completed", completion: existingCompletion },
         { status: 200 },
@@ -91,6 +111,7 @@ export async function POST(request: NextRequest) {
         });
 
         if (!previousCompletion) {
+          log.end(403, { reason: "prerequisite_not_met" });
           return NextResponse.json(
             { error: "You must complete the previous module first" },
             { status: 403 },
@@ -98,6 +119,7 @@ export async function POST(request: NextRequest) {
         }
       }
     }
+    log.time("checkPrerequisite");
 
     const completion = await UserModuleCompletion.create({
       user_id: userId,
@@ -105,6 +127,7 @@ export async function POST(request: NextRequest) {
       module_id: moduleId,
       completed_at: new Date(),
     });
+    log.time("createCompletion");
 
     assignment.last_active = new Date();
     const totalModules = await PathModule.countDocuments({ path_id: pathId });
@@ -118,6 +141,13 @@ export async function POST(request: NextRequest) {
     }
 
     await assignment.save();
+    log.time("updateAssignment");
+
+    log.end(200, {
+      moduleOrder: pathModule.order,
+      completedModules,
+      totalModules,
+    });
 
     return NextResponse.json({
       message: "Module completed successfully",
@@ -130,7 +160,7 @@ export async function POST(request: NextRequest) {
       },
     });
   } catch (error) {
-    console.error("Error recording progress:", error);
+    log.error(error);
     return NextResponse.json(
       { error: "Failed to record progress" },
       { status: 500 },

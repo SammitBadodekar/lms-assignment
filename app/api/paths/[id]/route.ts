@@ -9,25 +9,33 @@ import {
   UserPathAssignment,
   UserModuleCompletion,
 } from "@/lib/models";
+import { createLogger } from "@/lib/logger";
 
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
+  const { id } = await params;
+  const log = createLogger(`GET /api/paths/${id}`);
+
   try {
     const session = await auth.api.getSession({
       headers: await headers(),
     });
+    log.time("auth");
+
     if (!session?.user) {
+      log.end(401);
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { id } = await params;
     if (!mongoose.Types.ObjectId.isValid(id)) {
+      log.end(400);
       return NextResponse.json({ error: "Invalid path ID" }, { status: 400 });
     }
 
     await dbConnect();
+    log.time("dbConnect");
 
     const userId = new mongoose.Types.ObjectId(session.user.id);
     const pathId = new mongoose.Types.ObjectId(id);
@@ -36,7 +44,10 @@ export async function GET(
       user_id: userId,
       path_id: pathId,
     });
+    log.time("findAssignment");
+
     if (!assignment) {
+      log.end(404);
       return NextResponse.json(
         { error: "Path not found or not assigned to user" },
         { status: 404 },
@@ -44,7 +55,10 @@ export async function GET(
     }
 
     const path = await Path.findById(pathId);
+    log.time("findPath");
+
     if (!path) {
+      log.end(404);
       return NextResponse.json({ error: "Path not found" }, { status: 404 });
     }
 
@@ -94,15 +108,19 @@ export async function GET(
         },
       },
     ]);
+    log.time("aggregateModules");
 
     const completedCount = await UserModuleCompletion.countDocuments({
       user_id: userId,
       path_id: pathId,
     });
+    log.time("countCompleted");
+
     const totalModules = modules.length;
     const progress =
       totalModules > 0 ? (completedCount / totalModules) * 100 : 0;
 
+    log.end(200, { moduleCount: totalModules, completedCount });
     return NextResponse.json({
       path: {
         _id: path._id,
@@ -118,7 +136,7 @@ export async function GET(
       },
     });
   } catch (error) {
-    console.error("Error fetching path:", error);
+    log.error(error);
     return NextResponse.json(
       { error: "Failed to fetch path" },
       { status: 500 },

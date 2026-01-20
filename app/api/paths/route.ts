@@ -4,18 +4,24 @@ import { auth } from "@/lib/auth";
 import dbConnect from "@/lib/db";
 import mongoose from "mongoose";
 import { UserPathAssignment } from "@/lib/models";
+import { createLogger } from "@/lib/logger";
 
 export async function GET() {
+  const log = createLogger("GET /api/paths");
+
   try {
     const session = await auth.api.getSession({
       headers: await headers(),
     });
+    log.time("auth");
 
     if (!session?.user) {
+      log.end(401);
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
     await dbConnect();
+    log.time("dbConnect");
 
     const userId = new mongoose.Types.ObjectId(session.user.id);
 
@@ -82,13 +88,15 @@ export async function GET() {
         },
       },
     ]);
+    log.time("aggregation");
 
+    log.end(200, { pathCount: paths.length });
     return NextResponse.json({ paths });
   } catch (error) {
-    console.error("Error fetching paths:", error);
+    log.error(error);
     return NextResponse.json(
       { error: "Failed to fetch paths" },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }
