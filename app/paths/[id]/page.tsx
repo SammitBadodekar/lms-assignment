@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, CheckCircle, Circle, Lock, Play } from "lucide-react";
@@ -83,10 +83,11 @@ export default function PathDetailPage() {
   const [state, setState] = useState<State>({ status: "loading" });
   const [activeModule, setActiveModule] = useState<Module | null>(null);
   const [completing, setCompleting] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   const pathId = params.id as string;
 
-  const fetchPath = async () => {
+  const fetchPath = useCallback(async () => {
     setState({ status: "loading" });
     try {
       const response = await fetch(`/api/paths/${pathId}`);
@@ -101,42 +102,47 @@ export default function PathDetailPage() {
           !m.is_completed && isModuleUnlocked(m, data.path.modules),
       );
       setActiveModule(firstUnlockedIncomplete || data.path.modules[0] || null);
-    } catch (error) {
+    } catch (err) {
       setState({
         status: "error",
-        message:
-          error instanceof Error ? error.message : "Something went wrong",
+        message: err instanceof Error ? err.message : "Something went wrong",
       });
     }
-  };
+  }, [pathId]);
 
-  const markComplete = async (moduleId: string) => {
-    if (completing) return;
+  const markComplete = useCallback(
+    async (moduleId: string) => {
+      if (completing) return;
 
-    setCompleting(moduleId);
-    try {
-      const response = await fetch("/api/progress", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ path_id: pathId, module_id: moduleId }),
-      });
+      setCompleting(moduleId);
+      setError(null);
+      try {
+        const response = await fetch("/api/progress", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ path_id: pathId, module_id: moduleId }),
+        });
 
-      if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.error || "Failed to mark as complete");
+        if (!response.ok) {
+          const data = await response.json();
+          throw new Error(data.error || "Failed to mark as complete");
+        }
+
+        await fetchPath();
+      } catch (err) {
+        const message =
+          err instanceof Error ? err.message : "Failed to mark as complete";
+        setError(message);
+      } finally {
+        setCompleting(null);
       }
-
-      await fetchPath();
-    } catch (error) {
-      console.error("Error marking complete:", error);
-    } finally {
-      setCompleting(null);
-    }
-  };
+    },
+    [completing, pathId, fetchPath],
+  );
 
   useEffect(() => {
     fetchPath();
-  }, [pathId]);
+  }, [fetchPath]);
 
   if (state.status === "loading") {
     return <PathDetailSkeleton />;
@@ -245,16 +251,20 @@ export default function PathDetailPage() {
                       Completed
                     </span>
                   ) : isActiveModuleUnlocked ? (
-                    <Button
-                      onClick={() => markComplete(activeModule._id)}
-                      disabled={completing === activeModule._id}
-                      size="sm"
-                      className="shrink-0"
-                    >
-                      {completing === activeModule._id
-                        ? "Saving..."
-                        : "Mark as Complete"}
-                    </Button>
+                    <div className="flex flex-col items-end gap-1 shrink-0">
+                      <Button
+                        onClick={() => markComplete(activeModule._id)}
+                        disabled={completing === activeModule._id}
+                        size="sm"
+                      >
+                        {completing === activeModule._id
+                          ? "Saving..."
+                          : "Mark as Complete"}
+                      </Button>
+                      {error && (
+                        <p className="text-xs text-destructive">{error}</p>
+                      )}
+                    </div>
                   ) : (
                     <span className="flex items-center gap-1.5 text-sm text-muted-foreground shrink-0">
                       <Lock className="h-4 w-4" />

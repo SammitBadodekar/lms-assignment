@@ -273,7 +273,7 @@ async function seed() {
       console.log(`  Path created with ID: ${path._id}`);
       for (let i = 0; i < pathData.modules.length; i++) {
         const moduleData = pathData.modules[i];
-        const module = await Module.create({
+        const createdModule = await Module.create({
           title: moduleData.title,
           description: moduleData.title,
           image: "",
@@ -282,7 +282,7 @@ async function seed() {
         });
         await PathModule.create({
           path_id: path._id,
-          module_id: module._id,
+          module_id: createdModule._id,
           order: i + 1,
         });
 

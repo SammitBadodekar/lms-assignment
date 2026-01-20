@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { PathCard, PathCardSkeleton } from "@/components/path-card";
 import { AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -23,7 +23,7 @@ type State =
 export function PathList() {
   const [state, setState] = useState<State>({ status: "loading" });
 
-  const fetchPaths = async () => {
+  const fetchPaths = useCallback(async () => {
     setState({ status: "loading" });
     try {
       const response = await fetch("/api/paths");
@@ -32,17 +32,17 @@ export function PathList() {
       }
       const data = await response.json();
       setState({ status: "success", paths: data.paths });
-    } catch (error) {
+    } catch (err) {
       setState({
         status: "error",
-        message: error instanceof Error ? error.message : "Something went wrong",
+        message: err instanceof Error ? err.message : "Something went wrong",
       });
     }
-  };
+  }, []);
 
   useEffect(() => {
     fetchPaths();
-  }, []);
+  }, [fetchPaths]);
 
   if (state.status === "loading") {
     return (

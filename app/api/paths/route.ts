@@ -3,7 +3,7 @@ import { headers } from "next/headers";
 import { auth } from "@/lib/auth";
 import dbConnect from "@/lib/db";
 import mongoose from "mongoose";
-import { UserPathAssignment, PathModule, UserModuleCompletion } from "@/lib/models";
+import { UserPathAssignment } from "@/lib/models";
 
 export async function GET() {
   try {
